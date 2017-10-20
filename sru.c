@@ -36,6 +36,24 @@ float *w_x = NULL;
 float *w_f = NULL;
 float *w_r = NULL;
 
+void print(float *array, int time_step, int row, int col)
+{
+    int i, j, k;
+    for(i = 0; i < time_step; ++i)
+    {
+        printf("timestep: %d\n", i);
+        for(j = 0; j < row; ++j)
+        {
+            for(k = 0; k < col; ++k)
+            {
+                printf("%f ", array[i * row * col + j * col + k]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+}
 void random_fill(float *parray, int len)
 {
     int i;
@@ -51,7 +69,7 @@ void sigmoid(float *parray, int len)
     int i;
     for (i = 0; i < len; ++i)
     {
-        parray[i] = 1.0 / 1 + (float)exp(0 - parray[i]);
+        parray[i] = 1.0 / (1 + (float)exp(0 - parray[i]));
     }
 }
 
@@ -95,9 +113,10 @@ void sru_forward(int batch_size, int time_step, int input_dim, float *c_0, float
         C[j + 2] = r_t + i * cal_size;
     }
     cblas_sgemm_batch(CblasRowMajor, &transA, &transB, &m, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc, 1, &grp_size);
+    //cblas_sgemm(CblasRowMajor, transA, transB, m, n, k, alpha, w_x, lda, x_t, ldb, beta, x_wave_t, ldc);
     sigmoid(f_t, time_step * cal_size);
     sigmoid(r_t, time_step * cal_size);
-
+    
     //c_t = f_t · c_tm1 + (1 - f_t) · x_wave_t
     # pragma omp parallel for
     for (i = 0; i < cal_size; ++i)
@@ -111,21 +130,22 @@ void sru_forward(int batch_size, int time_step, int input_dim, float *c_0, float
         # pragma omp parallel for
         for(j = 0; j < cal_size; ++j)
         {
-            c_t[p + j] = c_t[p - cal_size + j] * f_t[p + j] + (1 - f_t[p + j]) * x_wave_t[p - j];
+            c_t[p + j] = c_t[p - cal_size + j] * f_t[p + j] + (1 - f_t[p + j]) * x_wave_t[p + j];
         }
     }
     //h_t = r_t · g(c_t) + (1 - r_t) · x_t 
     # pragma omp parallel for
     for (i = 0; i < cal_size * time_step; ++i)
     {
-        h_t[i] = r_t[i] * tanh(c_t[i]) + (1-r_t[i]) * x_t[i];   //choose tanh as activation function
+        h_t[i] = r_t[i] * tanh(c_t[i]) + (1 - r_t[i]) * x_t[i];   //choose tanh as activation function
     }
+    print(h_t, time_step, input_dim, batch_size);
 }
 int main(int argc, char *argv[])
 {
     int time_step = 3;
     int batch_size = 2;
-    int input_dim = 10;     
+    int input_dim = 5;     
 
     float *c_0 = (float*)mkl_calloc(batch_size * input_dim, sizeof(float), 64); 
     float *input = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);      
@@ -145,6 +165,8 @@ int main(int argc, char *argv[])
 
     random_fill(input, time_step * batch_size * input_dim);
     random_fill(c_0, batch_size * input_dim);
+    //random_fill(b_f, batch_size * input_dim);
+    //random_fill(b_r, batch_size * input_dim);
 
     random_fill(w_x, input_dim * input_dim);
     random_fill(w_f, input_dim * input_dim);
@@ -154,22 +176,25 @@ int main(int argc, char *argv[])
     A = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
     B = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
     C = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
-
+   
     sru_forward(batch_size, time_step, input_dim, c_0, input, output); //output is out parameter
-    
-    int i, j, k;
-    for(i = 0; i < time_step; ++i)
-    {
-        printf("timestep: %d\n", i);
-        for(j = 0; j < batch_size; ++j)
-        {
-            for(k = 0; k < input_dim; ++k)
-            {
-                printf("%f ", output[i * batch_size * input_dim + j * input_dim + k]);
-            }
-            printf("\n");
-        }
-        printf("\n");
-    }
+   
+    mkl_free(A);
+    mkl_free(B);
+    mkl_free(C);
+
+    mkl_free(c_0);
+    mkl_free(x_wave_t);
+    mkl_free(f_t);
+    mkl_free(r_t);
+    mkl_free(c_t);
+
+    mkl_free(b_f);
+    mkl_free(b_r);
+    mkl_free(w_x);
+    mkl_free(w_f);
+    mkl_free(w_r);
+    mkl_free(input);
+    mkl_free(output);
     return 0;
 }

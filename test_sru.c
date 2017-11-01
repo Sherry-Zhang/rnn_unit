@@ -6,9 +6,10 @@
   **/
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <mkl.h>
 #include <time.h>
-#include <omp.h>
+#include "sru.h"
 
 void print(float *array, int time_step, int row, int col)
 {
@@ -40,95 +41,81 @@ void random_fill(float *parray, int len)
 int main(int argc, char *argv[])
 {
     int time_step = 3;
-    int batch_size = 32;
-    int input_dim = 128;     
-
-    float *c_0 = (float*)mkl_calloc(batch_size * input_dim, sizeof(float), 64); 
-    float *input = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);      
-    float *h_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64); 
+    int batch_size = 2;
+    int input_dim = 5;     
+    int hidden_dim = 5;     
+    bool return_sequences = false;
     
-    float *x_wave_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);
-    float *f_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64); 
-    float *r_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);
-    float *c_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);    
+    float *c_0 = (float*)mkl_calloc(batch_size * hidden_dim, sizeof(float), 64); 
+    float *x_t = (float*)mkl_calloc(time_step * batch_size * input_dim, sizeof(float), 64);      
+    float *h_out = NULL;
+    if (return_sequences) {
+        h_out = (float*)mkl_calloc(time_step * batch_size * hidden_dim, sizeof(float), 64); 
+    } 
+    else {
+        h_out = (float*)mkl_calloc(time_step * batch_size * hidden_dim, sizeof(float), 64);
+    }
+    float *b_f = (float*)mkl_calloc(batch_size * hidden_dim, sizeof(float), 64); 
+    float *b_r = (float*)mkl_calloc(batch_size * hidden_dim, sizeof(float), 64);
+    float *w_x = (float*)mkl_calloc(hidden_dim * input_dim, sizeof(float), 64); 
+    float *w_f = (float*)mkl_calloc(hidden_dim * input_dim, sizeof(float), 64); 
+    float *w_r = (float*)mkl_calloc(hidden_dim * input_dim, sizeof(float), 64);
+    //float *w_tmp = (float*)mkl_calloc(hidden_dim * input_dim, sizeof(float), 64);
+    float* w_tmp = NULL;
 
-    float *b_f = (float*)mkl_calloc(batch_size * input_dim, sizeof(float), 64); 
-    float *b_r = (float*)mkl_calloc(batch_size * input_dim, sizeof(float), 64);
- 
-    float *w_x = (float*)mkl_calloc(input_dim * input_dim, sizeof(float), 64); 
-    float *w_f = (float*)mkl_calloc(input_dim * input_dim, sizeof(float), 64); 
-    float *w_r = (float*)mkl_calloc(input_dim * input_dim, sizeof(float), 64);
+    random_fill(x_t, time_step * batch_size * input_dim);
+    random_fill(c_0, batch_size * hidden_dim);
+    //random_fill(b_f, batch_size * hidden_dim);
+    //random_fill(b_r, batch_size * hidden_dim);
 
-    random_fill(input, time_step * batch_size * input_dim);
-    random_fill(c_0, batch_size * input_dim);
-    //random_fill(b_f, batch_size * input_dim);
-    //random_fill(b_r, batch_size * input_dim);
+    random_fill(w_x, input_dim * hidden_dim);
+    random_fill(w_f, input_dim * hidden_dim);
+    random_fill(w_r, input_dim * hidden_dim);
 
-    random_fill(w_x, input_dim * input_dim);
-    random_fill(w_f, input_dim * input_dim);
-    random_fill(w_r, input_dim * input_dim);
-
-    float **A = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
-    float **B = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
-    float **C = (float**)mkl_calloc(3*time_step, sizeof(float*), 64);
-   
-    SRU_batch_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input, A, B, C);
-    printf("batch_gemm called.\n");
-    //print(h_t, time_step, input_dim, batch_size);
-    // test performance
     int i = 0, count = 10000;
+    void *buf = mkl_malloc(sru_get_size(batch_size, hidden_dim, time_step), 64);
+    //test_batch
+    sru_inference(buf, batch_size, time_step, input_dim, hidden_dim, w_x, w_f, w_r, w_tmp, b_f, b_r, 
+                  c_0, x_t, h_out, return_sequences, 0); 
+    printf("batch_gemm called.\n");
+    if (return_sequences) {
+        print(h_out, time_step, hidden_dim, batch_size);
+    }
+    else {
+        print(h_out, 1, hidden_dim, batch_size);
+    }
     double begin = dsecnd();
     for(i = 0; i < count; ++i)
     {
-        SRU_batch_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input, A, B, C);
+        sru_inference(buf, batch_size, time_step, input_dim, hidden_dim, w_x, w_f, w_r, w_tmp, b_f, b_r, 
+                      c_0, x_t, h_out, return_sequences, 0); 
     }
     double end = dsecnd();
     printf("time:%lfms\n", (end-begin)*1000.0/count);
 
-    memset(x_wave_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(f_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(r_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(c_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(h_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    SRU_sequential_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input);
+    //test_sequential
+    sru_inference(buf, batch_size, time_step, input_dim, hidden_dim, w_x, w_f, w_r, w_tmp, b_f, b_r, 
+                  c_0, x_t, h_out, return_sequences, 1); 
     printf("sequential_gemm called.\n");
-    //print(h_t, time_step, input_dim, batch_size);
-
+    if (return_sequences) {
+        print(h_out, time_step, hidden_dim, batch_size);
+    }
+    else {
+        print(h_out, 1, hidden_dim, batch_size);
+    }
     begin = dsecnd();
     for(i = 0; i < count; ++i)
     {
-        SRU_sequential_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input);
+        sru_inference(buf, batch_size, time_step, input_dim, hidden_dim, w_x, w_f, w_r, w_tmp, b_f, b_r, 
+                      c_0, x_t, h_out, return_sequences, 1); 
     }
     end = dsecnd();
     printf("time:%lfms\n", (end-begin)*1000.0/count);
-    memset(x_wave_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(f_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(r_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(c_t, 0, time_step * batch_size * input_dim * sizeof(float));
-    memset(h_t, 0, time_step * batch_size * input_dim * sizeof(float));
 
-    SRU_pack_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input);
-    printf("pack_gemm called.\n");
-    //print(h_t, time_step, input_dim, batch_size);
 
-    begin = dsecnd();
-    for(i = 0; i < count; ++i)
-    {
-        SRU_pack_gemm(batch_size, time_step, input_dim, w_x, w_f, w_r, b_f, b_r, x_wave_t, f_t, r_t, c_t, h_t, c_0, input);
-    }
-    end = dsecnd();
-    printf("time:%lfms\n", (end-begin)*1000.0/count);
-    mkl_free(A);
-    mkl_free(B);
-    mkl_free(C);
-
-    mkl_free(input);
+    mkl_free(x_t);
+    mkl_free(h_out);
     mkl_free(c_0);
-    mkl_free(x_wave_t);
-    mkl_free(f_t);
-    mkl_free(r_t);
-    mkl_free(c_t);
-    mkl_free(h_t);
 
     mkl_free(b_f);
     mkl_free(b_r);

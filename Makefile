@@ -1,8 +1,10 @@
 CC = icc
-CXXFLAGS  = -Wall -O2 -g
+CXXFLAGS  = -O3 -restrict -qopenmp -lpthread
 
-INCLUDES = -I  /opt/intel/mkl/include
-LIBS = -L /opt/intel/mkl/lib/intel64 -lmkl_rt
+
+INCLUDES = -I  /home/shuzhan1/intel/mkl/include
+LIBS = -L /home/shuzhan1/intel/mkl/lib/intel64 -lmkl_rt 
+
 OUTFILE = sru
 
 SOURCES = $(wildcard *.c) 
